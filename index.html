@@ -242,31 +242,49 @@ function initPuzzle(animal) {
     let parts = [];
 
     if (animal === 'butterfly') {
+        // 完全还原图片3：复杂对称蝴蝶
         parts = [
-            { t: 'ellipse', rx: 100, ry: 60, c: COLORS.yellow, ox: 0, oy: -20 }, 
-            { t: 'ellipse', rx: 80, ry: 50, c: COLORS.blue, ox: -60, oy: -50 }, 
-            { t: 'ellipse', rx: 80, ry: 50, c: COLORS.blue, ox: 60, oy: -50 },
-            ...Array(6).fill().map((_, i) => ({ t: 'ellipse', rx: 50, ry: 25, c: COLORS.pink, ox: -120 + i*48, oy: 30 })),
-            { t: 'rect', w: 10, h: 90, c: COLORS.blue, ox: -30, oy: 90, ang: 0.4 }, 
-            { t: 'circle', r: 15, c: COLORS.blue, ox: -65, oy: 120 }, 
-            { t: 'drop', size: 35, c: COLORS.pink, ox: 0, oy: 0 }
+            { t: 'drop', size: 42, c: '#D81B60', ox: 0, oy: 0 }, // 桃红水滴身体
+            { t: 'ellipse', rx: 110, ry: 60, c: COLORS.yellow, ox: -100, oy: -60, ang: -0.5 }, // 左黄大椭圆
+            { t: 'ellipse', rx: 110, ry: 60, c: COLORS.yellow, ox: 100, oy: -60, ang: 0.5 },  // 右黄大椭圆
+            { t: 'ellipse', rx: 75, ry: 40, c: COLORS.blue, ox: -65, oy: -55, ang: 0.2 },  // 左浅蓝层
+            { t: 'ellipse', rx: 75, ry: 40, c: COLORS.blue, ox: 65, oy: -55, ang: -0.2 }, // 右浅蓝层
+            { t: 'ellipse', rx: 55, ry: 25, c: '#43A047', ox: -35, oy: -50, ang: 0.5 }, // 左绿斑
+            { t: 'ellipse', rx: 55, ry: 25, c: '#43A047', ox: 35, oy: -50, ang: -0.5 }, // 右绿斑
+            { t: 'ellipse', rx: 50, ry: 35, c: '#D32F2F', ox: -145, oy: -25, ang: -0.3 }, // 左边缘红
+            { t: 'ellipse', rx: 50, ry: 35, c: '#D32F2F', ox: 145, oy: -25, ang: 0.3 }, // 右边缘红
+            { t: 'ellipse', rx: 75, ry: 48, c: '#00BCD4', ox: -65, oy: 55, ang: 0.4 }, // 左下蓝翅
+            { t: 'ellipse', rx: 75, ry: 48, c: '#00BCD4', ox: 65, oy: 55, ang: -0.4 }, // 右下蓝翅
+            { t: 'circle', r: 14, c: COLORS.blue, ox: -18, oy: -100 }, // 左眼触角
+            { t: 'circle', r: 14, c: COLORS.blue, ox: 18, oy: -100 },  // 右眼触角
+            { t: 'poly', pts: [[-10,0],[10,0],[-60,80]], c: COLORS.blue, ox: -15, oy: 80 }, // 左尾须
+            { t: 'poly', pts: [[-10,0],[10,0],[60,80]], c: COLORS.blue, ox: 15, oy: 80 },  // 右尾须
+            { t: 'circle', r: 16, c: COLORS.blue, ox: -85, oy: 135 }, // 左尾圆
+            { t: 'circle', r: 16, c: COLORS.blue, ox: 85, oy: 135 }   // 右尾圆
         ];
     } else if (animal === 'fish') {
+        // 完全还原图片1：红色金鱼
         parts = [
-            { t: 'spindle', w: 180, h: 100, c: COLORS.red, ox: 0, oy: 0 },
-            { t: 'circle', r: 18, c: '#880E4F', ox: 15, oy: 30 },
-            { t: 'circle', r: 18, c: '#880E4F', ox: 50, oy: 30 },
-            { t: 'circle', r: 22, c: COLORS.blue, ox: -65, oy: -15 },
-            { t: 'poly', pts: [[0,0],[90,-75],[90,75]], c: COLORS.yellow, ox: 85, oy: 0 }
+            { t: 'spindle', w: 230, h: 115, c: '#E53935', ox: 0, oy: 0 }, // 红色梭形身体
+            { t: 'circle', r: 21, c: '#3D5AFE', ox: -75, oy: -15 },     // 蓝色圆眼
+            { t: 'circle', r: 19, c: '#880E4F', ox: -10, oy: 35 },      // 深红斑点1
+            { t: 'circle', r: 23, c: '#880E4F', ox: 40, oy: 42 },       // 深红斑点2
+            { t: 'circle', r: 17, c: '#880E4F', ox: 80, oy: 28 },       // 深红斑点3
+            { t: 'poly', pts: [[0,0],[85,-75],[85,75]], c: COLORS.yellow, ox: 100, oy: 0 } // 黄色多边形尾
         ];
     } else {
+        // 完全还原图片2：蜻蜓
         parts = [
-            { t: 'bullet', w: 28, h: 150, c: COLORS.teal, ox: 0, oy: 0 },
-            { t: 'ellipse', rx: 100, ry: 35, c: COLORS.red, ox: -70, oy: -35 },
-            { t: 'ellipse', rx: 100, ry: 35, c: COLORS.red, ox: 70, oy: -35 },
-            { t: 'ellipse', rx: 50, ry: 25, c: '#9CCC65', ox: 0, oy: -50 },
-            { t: 'circle', r: 20, c: COLORS.teal, ox: -30, oy: -100 },
-            { t: 'poly', pts: [[-30,30],[30,30],[0,-40]], c: '#9CCC65', ox: 0, oy: 110 }
+            { t: 'bullet', w: 65, h: 170, c: '#26A69A', ox: 0, oy: 0 }, // 蓝绿色身体
+            { t: 'ellipse', rx: 38, ry: 33, c: '#8BC34A', ox: 0, oy: -105 }, // 浅绿头
+            { t: 'circle', r: 13, c: '#26A69A', ox: -22, oy: -130 }, // 左眼
+            { t: 'circle', r: 13, c: '#26A69A', ox: 22, oy: -130 },  // 右眼
+            { t: 'ellipse', rx: 115, ry: 38, c: '#880E4F', ox: -115, oy: -45, ang: -0.1 }, // 左上红翅
+            { t: 'ellipse', rx: 115, ry: 38, c: '#880E4F', ox: 115, oy: -45, ang: 0.1 },  // 右上红翅
+            { t: 'ellipse', rx: 80, ry: 30, c: '#880E4F', ox: -85, oy: 35, ang: 0.1 },    // 左下红翅
+            { t: 'ellipse', rx: 80, ry: 30, c: '#880E4F', ox: 85, oy: 35, ang: -0.1 },   // 右下红翅
+            { t: 'poly', pts: [[-12,0],[12,0],[0,165]], c: '#8BC34A', ox: 0, oy: 85 },   // 浅绿三角形尾
+            { t: 'circle', r: 24, c: '#880E4F', ox: 0, oy: 250 } // 尾部红点
         ];
     }
 
