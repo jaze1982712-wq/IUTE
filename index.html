@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IUTE - Kawaii Universe Training</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --v-blue: #2D5DA7;
+            --v-magenta: #FF4081;
+            --v-yellow: #FFD600;
+            --v-red: #FF5252;
+            --v-teal: #00BFA5;
+            --v-purple: #7C4DFF;
+            --glass: rgba(0, 0, 0, 0.7);
+        }
+
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+        @keyframes jiggle { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #080808; font-family: 'Comic Sans MS', cursive, sans-serif; }
+        #app-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        
+        /* Webcam View */
+        #webcam { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.45; z-index: 0; filter: saturate(1.2); }
+        #game-canvas { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; }
+        
+        /* Decorative UI */
+        .ui-bubble {
+            position: absolute; z-index: 10; background: var(--glass); backdrop-filter: blur(25px);
+            border-radius: 45px; padding: 30px; border: 5px solid rgba(255, 255, 255, 0.3);
+            color: #FFF; display: none; box-shadow: 0 15px 50px rgba(0,0,0,0.8);
+            animation: jiggle 3s infinite ease-in-out;
+        }
+        #ui-top-right { top: 30px; right: 30px; min-width: 220px; text-align: center; }
+        #ui-top-left { top: 30px; left: 30px; }
+        
+        /* Mascot Decorations */
+        .mascot { position: absolute; font-size: 40px; top: -30px; right: -20px; }
+
+        .slider-box { margin: 15px 0; text-align: left; }
+        .slider-box label { font-size: 14px; font-weight: bold; color: var(--v-yellow); display: block; margin-bottom: 8px; text-shadow: 2px 2px 0 #000; }
+        
+        input[type=range] { -webkit-appearance: none; width: 100%; height: 12px; background: #333; border-radius: 10px; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 24px; border-radius: 50%; background: var(--v-yellow); cursor: pointer; border: 3px solid #FFF; }
+
+        #btn-quit { 
+            padding: 15px; border-radius: 25px; background: linear-gradient(180deg, var(--v-magenta) 0%, #C2185B 100%);
+            color: white; font-weight: bold; cursor: pointer; border: none; width: 100%; font-size: 18px;
+            box-shadow: 0 6px 0 #880E4F; transition: transform 0.1s;
+        }
+        #btn-quit:active { transform: translateY(4px); box-shadow: 0 2px 0 #880E4F; }
+        
+        #loading-screen {
+            position: fixed; inset: 0; background: #000; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: #FFF;
+        }
+        .loading-mascot { font-size: 60px; animation: float 1s infinite alternate; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="game-canvas"></canvas>
+
+        <div id="ui-top-right" class="ui-bubble">
+            <span class="mascot">🐰</span>
+            <div id="slice-sliders" style="display:none;">
+                <div class="slider-box">
+                    <label>Creature Count</label>
+                    <input type="range" id="spawn-qty" min="1" max="5" value="1">
+                </div>
+                <div class="slider-box">
+                    <label>Flying Speed</label>
+                    <input type="range" id="spawn-freq" min="1500" max="5000" value="3000" step="100" dir="rtl">
+                </div>
+            </div>
+            <div id="btn-quit">Back to Home</div>
+        </div>
+
+        <div id="ui-top-left" class="ui-bubble">
+            <span class="mascot">⭐️</span>
+            <div id="score-text" style="font-size: 28px; font-weight: bold; color: var(--v-yellow);">Stars: 0</div>
+        </div>
+
+        <div id="loading-screen">
+            <div class="loading-mascot">🐱</div>
+            <p style="margin-top:20px; font-weight:bold; font-size:24px;">SUMMONING CUTE ITEMS...</p>
+        </div>
+    </div>
+
+<script>
+/** Audio System: Pentatonic Chimes **/
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const SCALE = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50];
+
+function playChime(idx, dur = 0.4) {
+    const f = SCALE[idx % SCALE.length];
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(f, audioCtx.currentTime);
+    g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+
+/** Configuration **/
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const videoElement = document.getElementById('webcam');
+
+let width, height;
+let gameState = 'WELCOME'; 
+let handLandmarks = null;
+let isPinching = false;
+let lastPinchState = false;
+let cursorX = 0, cursorY = 0;
+
+let gameObjects = []; 
+let targetSlots = []; 
+let uiButtons = []; 
+let particles = [];
+let ribbons = [];
+let clouds = []; // Floating Background items
+let score = 0;
+let spawnInterval = null;
+let aiMessage = "";
+let cursorTrail = [];
+
+const COLORS = {
+    blue: '#2D5DA7', pink: '#FF4081', yellow: '#FFD600',
+    red: '#FF5252', teal: '#00BFA5', purple: '#7C4DFF',
+    orange: '#FF9100'
+};
+
+/** Kawaii Background Decor **/
+function initDecorations() {
+    clouds = Array(15).fill().map(() => ({
+        x: Math.random()*width, y: Math.random()*height,
+        emoji: ['☁️', '🌸', '✨', '🎈', '⭐️', '🍭'][Math.floor(Math.random()*6)],
+        size: 20 + Math.random()*40,
+        opacity: 0.1 + Math.random()*0.3,
+        v: 0.1 + Math.random()*0.4,
+        offset: Math.random() * Math.PI * 2
+    }));
+}
+
+function triggerParty() {
+    const melody = [0, 2, 4, 5];
+    melody.forEach((n, i) => setTimeout(() => playChime(n, 0.8), i * 150));
+    for(let i=0; i<50; i++) {
+        ribbons.push(createRibbon(0, height, 12 + Math.random()*15, -15 - Math.random()*25));
+        ribbons.push(createRibbon(width, height, -12 - Math.random()*15, -15 - Math.random()*25));
+    }
+}
+
+function createRibbon(x, y, vx, vy) {
+    return { x, y, vx, vy, w: 20 + Math.random()*30, h: 8 + Math.random()*12, 
+             color: Object.values(COLORS)[Math.floor(Math.random()*7)], rot: Math.random()*Math.PI, rv: (Math.random()-0.5)*0.3, life: 250 };
+}
+
+/** Main Engine **/
+function gameLoop(time) {
+    ctx.clearRect(0, 0, width, height);
+    uiButtons = []; 
+
+    drawComplexBackground(time);
+
+    switch(gameState) {
+        case 'WELCOME': renderWelcome(); break;
+        case 'SELECT': renderSelect(); break;
+        case 'PUZZLE_SELECT': renderPuzzleSelect(); break;
+        case 'PUZZLE_PLAY': renderPuzzlePlay(); break;
+        case 'GRAB_PLAY': renderGrabPlay(); break;
+        case 'SLICE_PLAY': renderSlicePlay(); break;
+        case 'WIN': renderWin(); break;
+    }
+
+    if (handLandmarks) {
+        drawGlowSkeleton();
+        handleGestures();
+        updateCursorTrail();
+    }
+
+    drawParticles();
+    drawBigConfetti();
+    drawMagicCursor();
+    requestAnimationFrame(gameLoop);
+}
+
+function drawComplexBackground(time) {
+    clouds.forEach(c => {
+        c.y -= c.v; if(c.y < -50) c.y = height + 50;
+        const drift = Math.sin(time/1000 + c.offset) * 20;
+        ctx.save();
+        ctx.globalAlpha = c.opacity;
+        ctx.font = `${c.size}px Arial`;
+        ctx.fillText(c.emoji, c.x + drift, c.y);
+        ctx.restore();
+    });
+}
+
+/** 1. Welcome **/
+function renderWelcome() {
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 85px Comic Sans MS'; ctx.textAlign = 'center';
+    ctx.shadowBlur = 30; ctx.shadowColor = COLORS.pink;
+    ctx.fillText('WELCOME TO IUTE', width/2, height/2 - 40);
+    ctx.shadowBlur = 0;
+    drawKawaiiBtn(width/2 - 150, height/2 + 80, 300, 95, 'START GAME 🎈', 'go_select', COLORS.blue);
+}
+
+/** 2. Selection Card View **/
+function renderSelect() {
+    drawTitle('PICK A CUTE WORLD');
+    const w = 300, h = 240;
+    drawKawaiiBtn(width*0.2 - w/2, height/2-h/2, w, h, 'PUZZLE 🦋\nBOOK', 'nav_puzzle', COLORS.pink);
+    drawKawaiiBtn(width*0.5 - w/2, height/2-h/2, w, h, 'SHAPE 🧸\nPARK', 'nav_grab', COLORS.blue);
+    drawKawaiiBtn(width*0.8 - w/2, height/2-h/2, w, h, 'FRUIT 🍓\nSLICE', 'nav_slice', COLORS.teal);
+}
+
+function renderPuzzleSelect() {
+    drawTitle('CHOOSE YOUR FRIEND');
+    const s = 220;
+    drawKawaiiBtn(width*0.25 - s/2, height/2-s/2, s, s, 'BUTTERFLY', 'p_butterfly', COLORS.pink);
+    drawKawaiiBtn(width*0.5 - s/2, height/2-s/2, s, s, 'GOLD FISH', 'p_fish', COLORS.orange);
+    drawKawaiiBtn(width*0.75 - s/2, height/2-s/2, s, s, 'DRAGONFLY', 'p_dragonfly', COLORS.teal);
+}
+
+/** 3. Puzzle Logic (Image Restoration) **/
+function initPuzzle(animal) {
+    gameState = 'PUZZLE_PLAY';
+    gameObjects = []; targetSlots = []; score = 0;
+    const cx = width * 0.72, cy = height * 0.5;
+    let parts = [];
+
+    if (animal === 'butterfly') {
+        parts = [
+            { t: 'ellipse', rx: 100, ry: 60, c: COLORS.yellow, ox: 0, oy: -20 }, 
+            { t: 'ellipse', rx: 80, ry: 50, c: COLORS.blue, ox: -60, oy: -50 }, 
+            { t: 'ellipse', rx: 80, ry: 50, c: COLORS.blue, ox: 60, oy: -50 },
+            ...Array(6).fill().map((_, i) => ({ t: 'ellipse', rx: 50, ry: 25, c: COLORS.pink, ox: -120 + i*48, oy: 30 })),
+            { t: 'rect', w: 10, h: 90, c: COLORS.blue, ox: -30, oy: 90, ang: 0.4 }, 
+            { t: 'circle', r: 15, c: COLORS.blue, ox: -65, oy: 120 }, 
+            { t: 'drop', size: 35, c: COLORS.pink, ox: 0, oy: 0 }
+        ];
+    } else if (animal === 'fish') {
+        parts = [
+            { t: 'spindle', w: 180, h: 100, c: COLORS.red, ox: 0, oy: 0 },
+            { t: 'circle', r: 18, c: '#880E4F', ox: 15, oy: 30 },
+            { t: 'circle', r: 18, c: '#880E4F', ox: 50, oy: 30 },
+            { t: 'circle', r: 22, c: COLORS.blue, ox: -65, oy: -15 },
+            { t: 'poly', pts: [[0,0],[90,-75],[90,75]], c: COLORS.yellow, ox: 85, oy: 0 }
+        ];
+    } else {
+        parts = [
+            { t: 'bullet', w: 28, h: 150, c: COLORS.teal, ox: 0, oy: 0 },
+            { t: 'ellipse', rx: 100, ry: 35, c: COLORS.red, ox: -70, oy: -35 },
+            { t: 'ellipse', rx: 100, ry: 35, c: COLORS.red, ox: 70, oy: -35 },
+            { t: 'ellipse', rx: 50, ry: 25, c: '#9CCC65', ox: 0, oy: -50 },
+            { t: 'circle', r: 20, c: COLORS.teal, ox: -30, oy: -100 },
+            { t: 'poly', pts: [[-30,30],[30,30],[0,-40]], c: '#9CCC65', ox: 0, oy: 110 }
+        ];
+    }
+
+    parts.forEach((p, i) => {
+        targetSlots.push({ ...p, x: cx + p.ox, y: cy + p.oy, id: i, active: false, placed: false });
+        gameObjects.push({ ...p, x: width*0.3 + Math.random()*width*0.15, y: 180 + Math.random()*(height-360), id: i, isDragging: false, placed: false });
+    });
+    showUI(false);
+}
+
+function renderPuzzlePlay() {
+    ctx.fillStyle = '#FFF'; ctx.font = 'bold 26px Comic Sans MS'; ctx.textAlign = 'center';
+    ctx.fillText('✨ Drag the cute pieces to the magic board! ✨', width*0.5, 60);
+    targetSlots.forEach(s => {
+        ctx.save(); ctx.globalAlpha = s.active ? 1.0 : 0.25; drawComplexShape(s); ctx.restore();
+    });
+    gameObjects.forEach(o => { if(!o.placed) drawComplexShape(o); });
+    targetSlots.forEach(s => { if(s.placed) drawComplexShape(s); });
+}
+
+/** 4. Sorter Logic **/
+function initGrab() {
+    gameState = 'GRAB_PLAY'; gameObjects = []; targetSlots = []; score = 0;
+    const types = ['square', 'circle', 'triangle'];
+    const bColors = [COLORS.red, COLORS.blue, COLORS.yellow];
+    for(let i=0; i<10; i++) {
+        gameObjects.push({ type: types[i%3], x: width*0.15 + i*width*0.07, y: height*0.35, size: 60, color: bColors[i%3], isDragging: false, placed: false, tilt: 0, scale: 1, px: 0 });
+    }
+    types.forEach((type, i) => {
+        targetSlots.push({ type, x: width*0.25 + i*width*0.25, y: height*0.8, w: 200, h: 160, bounce: 0 });
+    });
+    showUI(true);
+}
+
+function renderGrabPlay() {
+    targetSlots.forEach(box => {
+        ctx.save();
+        const b = Math.sin(box.bounce) * 15; box.bounce *= 0.9;
+        ctx.translate(box.x, box.y + b);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)'; 
+        drawRoundRect(ctx, -box.w/2, -box.h/2, box.w, box.h, 35, true);
+        ctx.fillStyle = '#FFF'; drawIcon(box.type, 0, 0, 40);
+        ctx.restore();
+    });
+
+    gameObjects.forEach(obj => {
+        if (obj.placed) return;
+        ctx.save();
+        if (obj.isDragging) {
+            obj.scale += (1.4 - obj.scale) * 0.2;
+            obj.tilt += ((obj.x - obj.px)*0.1 - obj.tilt) * 0.15;
+            obj.px = obj.x;
+            ctx.shadowBlur = 30; ctx.shadowColor = obj.color;
+        } else { obj.scale += (1 - obj.scale) * 0.2; obj.tilt *= 0.8; }
+        ctx.translate(obj.x, obj.y); ctx.rotate(obj.tilt); ctx.scale(obj.scale, obj.scale);
+        ctx.fillStyle = obj.color; drawBauhausShape(obj.type, obj.size);
+        ctx.restore();
+    });
+}
+
+/** 5. Slicer Logic **/
+function initSlice() {
+    gameState = 'SLICE_PLAY'; score = 0; gameObjects = [];
+    document.getElementById('slice-sliders').style.display = 'block';
+    showUI(true);
+    if(spawnInterval) clearInterval(spawnInterval);
+    const trigger = () => {
+        if(gameState === 'SLICE_PLAY') {
+            const qty = document.getElementById('spawn-qty').value;
+            for(let i=0; i<qty; i++) spawnSliceObj();
+            setTimeout(trigger, document.getElementById('spawn-freq').value);
+        }
+    };
+    trigger();
+}
+
+function spawnSliceObj() {
+    gameObjects.push({
+        x: 150 + Math.random()*(width-300), y: height+50,
+        vx: (Math.random()-0.5)*5, vy: -12 - Math.random()*5, 
+        r: 65, animal: ['🐱', '🐰', '🐼', '🐹'][Math.floor(Math.random()*4)],
+        color: Object.values(COLORS)[Math.floor(Math.random()*7)]
+    });
+}
+
+function renderSlicePlay() {
+    gameObjects.forEach((obj, idx) => {
+        obj.x += obj.vx; obj.y += obj.vy; obj.vy += 0.12; 
+        ctx.save(); ctx.translate(obj.x, obj.y);
+        ctx.fillStyle = obj.color; ctx.beginPath(); ctx.arc(0,0,obj.r,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#FFF'; ctx.lineWidth = 5; ctx.stroke();
+        ctx.font = '55px Arial'; ctx.textAlign='center'; ctx.fillText(obj.animal, 0, 20);
+        ctx.restore();
+
+        if (Math.hypot(obj.x - cursorX, obj.y - cursorY) < obj.r + 30) {
+            createSquareExplosion(obj.x, obj.y, obj.color);
+            playChime(Math.floor(Math.random()*6));
+            gameObjects.splice(idx, 1);
+            score += 5; updateScore();
+            if (score >= 100) { triggerWin('PARTY TIME! SLICING KING! 🎊'); triggerParty(); }
+        }
+        if(obj.y > height + 100) gameObjects.splice(idx, 1);
+    });
+}
+
+/** Magic Interactions **/
+function updateCursorTrail() {
+    cursorTrail.push({x: cursorX, y: cursorY, life: 1.0});
+    if(cursorTrail.length > 20) cursorTrail.shift();
+}
+
+function drawMagicCursor() {
+    if(cursorTrail.length < 2) return;
+    ctx.save();
+    for(let i=1; i<cursorTrail.length; i++) {
+        const p = cursorTrail[i];
+        ctx.globalAlpha = p.life * (i/cursorTrail.length);
+        ctx.fillStyle = `hsl(${(timeOffset + i*10)%360}, 100%, 70%)`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 8 * (i/cursorTrail.length), 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cursorX, cursorY, isPinching ? 18 : 38, 0, Math.PI*2);
+    ctx.strokeStyle = isPinching ? COLORS.pink : COLORS.yellow; ctx.lineWidth = 6;
+    ctx.shadowBlur = 15; ctx.shadowColor = ctx.strokeStyle; ctx.stroke();
+    if(isPinching) { ctx.fillStyle = COLORS.pink; ctx.globalAlpha = 0.4; ctx.fill(); }
+    ctx.restore();
+}
+
+let timeOffset = 0;
+function handleGestures() {
+    timeOffset++;
+    const trigger = (isPinching && !lastPinchState);
+    if (trigger) {
+        uiButtons.forEach(btn => {
+            if (cursorX > btn.x && cursorX < btn.x+btn.w && cursorY > btn.y && cursorY < btn.y+btn.h) {
+                playChime(4); executeAction(btn.id);
+            }
+        });
+        const endRect = document.getElementById('btn-quit').getBoundingClientRect();
+        if (cursorX > endRect.left && cursorX < endRect.right && cursorY > endRect.top && cursorY < endRect.bottom) {
+            executeAction('back_home');
+        }
+    }
+
+    if (gameState === 'PUZZLE_PLAY' || gameState === 'GRAB_PLAY') {
+        let active = gameObjects.find(o => o.isDragging);
+        if (isPinching) {
+            if (!active) {
+                active = gameObjects.find(o => !o.placed && Math.hypot(o.x - cursorX, o.y - cursorY) < 85);
+                if (active) { active.isDragging = true; playChime(0, 0.1); }
+            }
+            if (active) {
+                active.x = cursorX; active.y = cursorY;
+                if (gameState === 'PUZZLE_PLAY') targetSlots.forEach(s => s.active = (s.id === active.id));
+            }
+        } else if (active) {
+            active.isDragging = false;
+            checkPlacement(active);
+            targetSlots.forEach(s => s.active = false);
+        }
+    }
+    lastPinchState = isPinching;
+}
+
+function executeAction(id) {
+    if (id === 'go_select' || id === 'back_home') {
+        gameState = (id === 'go_select') ? 'SELECT' : 'WELCOME';
+        hideUI(); ribbons = [];
+    } 
+    else if (id === 'nav_puzzle') gameState = 'PUZZLE_SELECT';
+    else if (id === 'nav_grab') initGrab();
+    else if (id === 'nav_slice') initSlice();
+    else if (id.startsWith('p_')) initPuzzle(id.split('_')[1]);
+    else if (id === 'retry') { gameState = 'SELECT'; ribbons = []; }
+}
+
+function checkPlacement(obj) {
+    if (gameState === 'PUZZLE_PLAY') {
+        const slot = targetSlots.find(s => s.id === obj.id);
+        if (Math.hypot(obj.x - slot.x, obj.y - slot.y) < 80) {
+            obj.placed = true; slot.placed = true;
+            createSquareExplosion(slot.x, slot.y, slot.c); playChime(5, 0.6);
+            if(gameObjects.every(o => o.placed)) { triggerWin('KINDERGARTEN GENIUS! 🌈'); triggerParty(); }
+        }
+    } else {
+        const box = targetSlots.find(s => s.type === obj.type);
+        if (obj.x > box.x - box.w/2 && obj.x < box.x + box.w/2 && obj.y > box.y - box.h/2 && obj.y < box.y + box.h/2) {
+            obj.placed = true; box.bounce = Math.PI;
+            createSquareExplosion(obj.x, obj.y, obj.color); playChime(3, 0.6);
+            if(gameObjects.every(o => o.placed)) { triggerWin('SORTING SUPERHERO! 🧸'); triggerParty(); }
+        }
+    }
+}
+
+/** Visual Utilities **/
+function drawKawaiiBtn(x, y, w, h, txt, id, c) {
+    uiButtons.push({x, y, w, h, id});
+    const hover = (cursorX > x && cursorX < x+w && cursorY > y && cursorY < y+h);
+    ctx.save();
+    ctx.fillStyle = hover ? '#FFF' : 'rgba(255,255,255,0.9)';
+    ctx.shadowBlur = 25; ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    drawRoundRect(ctx, x, y, w, h, 40, true);
+    ctx.fillStyle = c; ctx.font = 'bold 24px Comic Sans MS'; ctx.textAlign='center';
+    const lines = txt.split('\n');
+    lines.forEach((l, i) => ctx.fillText(l, x + w/2, y + h/2 + 8 + (i * 25) - (lines.length-1)*12));
+    ctx.restore();
+}
+
+function drawComplexShape(s) {
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.ang||0); ctx.fillStyle = s.c || '#ccc'; ctx.beginPath();
+    if(s.t === 'circle') ctx.arc(0,0, s.r, 0, Math.PI*2);
+    else if(s.t === 'ellipse') ctx.ellipse(0,0, s.rx, s.ry, 0, 0, Math.PI*2);
+    else if(s.t === 'rect') drawRoundRect(ctx, -s.w/2, -s.h/2, s.w, s.h, s.rx||0, true);
+    else if(s.t === 'spindle') { ctx.moveTo(-s.w/2, 0); ctx.quadraticCurveTo(0, -s.h, s.w/2, 0); ctx.quadraticCurveTo(0, s.h, -s.w/2, 0); }
+    else if(s.t === 'bullet') drawRoundRect(ctx, -s.w/2, -s.h/2, s.w, s.h, s.w/2, true);
+    else if(s.t === 'poly') s.pts.forEach((p,i) => i===0 ? ctx.moveTo(p[0],p[1]) : ctx.lineTo(p[0],p[1]));
+    else if(s.t === 'drop') { ctx.moveTo(0, -s.size); ctx.bezierCurveTo(s.size, -s.size/2, s.size, s.size, 0, s.size); ctx.bezierCurveTo(-s.size, s.size, -s.size, -s.size/2, 0, -s.size); }
+    ctx.fill(); ctx.restore();
+}
+
+function drawBauhausShape(t, s) {
+    ctx.beginPath();
+    if(t==='square') ctx.rect(-s/2, -s/2, s, s);
+    else if(t==='circle') ctx.arc(0,0,s/2,0,Math.PI*2);
+    else { ctx.moveTo(0,-s/2); ctx.lineTo(-s/2,s/2); ctx.lineTo(s/2,s/2); }
+    ctx.fill();
+}
+
+function drawIcon(t, x, y, s) {
+    ctx.beginPath();
+    if(t==='square') ctx.rect(x-s/2, y-s/2, s, s);
+    else if(t==='circle') ctx.arc(x,y,s/2,0,Math.PI*2);
+    else { ctx.moveTo(x,y-s/2); ctx.lineTo(x-s/2,y+s/2); ctx.lineTo(x+s/2,y+s/2); }
+    ctx.fill();
+}
+
+function createSquareExplosion(x, y, color) {
+    for(let i=0; i<20; i++) {
+        particles.push({ x, y, vx: (Math.random()-0.5)*18, vy: (Math.random()-0.5)*18, life: 30, color, size: Math.random()*15+8 });
+    }
+}
+
+function drawParticles() {
+    particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life--; ctx.fillStyle = p.color; ctx.globalAlpha = p.life/30;
+        ctx.fillRect(p.x, p.y, p.size, p.size); if(p.life<=0) particles.splice(i, 1);
+    });
+    ctx.globalAlpha = 1.0;
+}
+
+function drawBigConfetti() {
+    ribbons.forEach((r, i) => {
+        r.x += r.vx; r.y += r.vy; r.vy += 0.45; r.rot += r.rv;
+        ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.rot);
+        ctx.fillStyle = r.color; ctx.fillRect(-r.w/2, -r.h/2, r.w, r.h);
+        ctx.restore();
+        if(r.y > height + 100) ribbons.splice(i, 1);
+    });
+}
+
+function drawGlowSkeleton() {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 8;
+    ctx.shadowBlur = 20; ctx.shadowColor = COLORS.lightBlue;
+    const conns = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[9,10],[10,11],[11,12],[13,14],[14,15],[15,16],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17],[0,17]];
+    conns.forEach(([a, b]) => {
+        const p1 = handLandmarks[a], p2 = handLandmarks[b];
+        ctx.beginPath(); ctx.moveTo((1-p1.x)*width, p1.y*height); ctx.lineTo((1-p2.x)*width, p2.y*height); ctx.stroke();
+    });
+    handLandmarks.forEach((pt, idx) => {
+        ctx.fillStyle = (idx === 4 || idx === 8) ? COLORS.pink : "#FFF";
+        ctx.beginPath(); ctx.arc((1-pt.x)*width, pt.y*height, 7, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.restore();
+}
+
+function triggerWin(msg) { gameState = 'WIN'; aiMessage = msg; hideUI(); }
+function renderWin() {
+    ctx.fillStyle = 'rgba(0,0,0,0.88)'; ctx.fillRect(0,0,width,height);
+    drawTitle(aiMessage, COLORS.yellow);
+    drawKawaiiBtn(width/2 - 220, height/2 + 80, 200, 75, 'RETRY 🔄', 'retry', COLORS.blue);
+    drawKawaiiBtn(width/2 + 20, height/2 + 80, 200, 75, 'HOME 🏠', 'back_home', COLORS.pink);
+}
+
+function drawTitle(t, color='#FFF') { ctx.fillStyle = color; ctx.font = 'bold 42px Comic Sans MS'; ctx.textAlign='center'; ctx.fillText(t, width/2, 100); }
+function updateScore() { document.getElementById('score-text').innerText = `Stars: ${score}`; }
+function showUI(s) { document.querySelectorAll('.ui-bubble').forEach(p => p.style.display = 'block'); }
+function hideUI() { document.querySelectorAll('.ui-bubble').forEach(p => p.style.display = 'none'); document.getElementById('slice-sliders').style.display = 'none'; }
+function drawRoundRect(ctx, x, y, w, h, r, f) {
+    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r); ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+    if(f) ctx.fill(); else ctx.stroke();
+}
+
+/** MediaPipe Setup **/
+const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
+hands.onResults(res => {
+    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        handLandmarks = res.multiHandLandmarks[0];
+        const index = handLandmarks[8], thumb = handLandmarks[4];
+        cursorX = (1 - index.x) * width; cursorY = index.y * height;
+        isPinching = Math.hypot(index.x - thumb.x, index.y - thumb.y) < 0.12;
+    } else { handLandmarks = null; isPinching = false; }
+});
+
+const camera = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 1280, height: 720 });
+function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; initDecorations(); }
+window.addEventListener('resize', resize); resize();
+camera.start().then(() => { document.getElementById('loading-screen').style.display = 'none'; requestAnimationFrame(gameLoop); });
+</script>
+</body>
+</html>
